@@ -4,6 +4,7 @@ import numpy as np
 from tinygrad.ops import Compiled
 from tinygrad.runtime.lib import RawMallocBuffer
 from tinygrad.codegen.cstyle import CStyleCodegen, CStyleLanguage
+from tinygrad.helpers import dtypes
 
 class WGSLProgram:
   def __init__(self, name:str, prg:str):
@@ -38,7 +39,7 @@ class WGSLProgram:
     device.queue.submit([command_encoder.finish()])
 
     # Read result
-    args[0]._copyin(np.array(device.queue.read_buffer(buffers[0]).cast("f")))
+    args[0]._copyin(np.array(device.queue.read_buffer(buffers[0]).cast("f" if dtypes.is_float(args[0].dtype) else "i")))
 
 class WGSLCodegen(CStyleCodegen):
   lang = CStyleLanguage(kernel_prefix = "@compute @workgroup_size(WORKGROUP_SIZE)",
