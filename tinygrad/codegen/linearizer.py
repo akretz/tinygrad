@@ -1,4 +1,4 @@
-from typing import List, Tuple, Any, Optional, cast, DefaultDict, NamedTuple, TypeVar, Dict, Iterator, Union, Sequence
+from typing import List, Tuple, Any, Optional, cast, DefaultDict, NamedTuple, TypeVar, Dict, Iterator, Union, Sequence, Final
 import itertools, math
 from collections import defaultdict
 from enum import Enum, auto
@@ -20,14 +20,22 @@ class LocalBuffer(NamedTuple):
   dtype: DType = dtypes.float32
   realized: None = None
 
+dtype2wgsl: Final[Dict[DType, str]] = {
+  dtypes.bool: "bool",
+  dtypes.uint32: "u32",
+  dtypes.int32: "i32",
+  dtypes.float16: "f16",
+  dtypes.float32: "f32",
+}
+
 class Token(NamedTuple):
   name: str
   dtype: DType
   offset: Optional[int] = None
-  def render(self, with_type=False):
+  def render(self, with_type=False, wgsl_style=False):
     if with_type:
       assert self.offset is None
-      return f"{self.dtype.name} {self.name}"
+      return f"var {self.name}: {dtype2wgsl[self.dtype]}" if wgsl_style else f"{self.dtype.name} {self.name}"
     if self.offset is None: return self.name
     assert self.dtype == dtypes._float4
     return self.name+"."+"xyzw"[int(self.offset)]

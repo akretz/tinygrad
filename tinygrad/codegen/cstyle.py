@@ -1,6 +1,6 @@
 from typing import Final, Dict, Callable, ClassVar, List, Optional, NamedTuple, DefaultDict, Tuple, Set, Union
 import math, collections
-from tinygrad.codegen.linearizer import Linearizer, UOps, UOp, LocalBuffer
+from tinygrad.codegen.linearizer import Linearizer, UOps, UOp, LocalBuffer, dtype2wgsl
 from tinygrad.ops import ASTRunner, Op, UnaryOps, BinaryOps, FusedOps
 from tinygrad.helpers import partition, ImageDType, DEBUG, dtypes, colored
 from tinygrad.runtime.lib import RawConst
@@ -25,6 +25,7 @@ class CStyleLanguage(NamedTuple):
   half_prekernel: Optional[str] = None
   double_prekernel: Optional[str] = None
   uses_vload: bool = False
+  wgsl_style: bool = False
 
 def to_image_idx(base_shape:Tuple[int, ...], idxy:Node, valid:Node, validhacks=False) -> Tuple[Node, Node]:
   idy = (idxy//(4*base_shape[1]))
@@ -79,14 +80,15 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
         else:
           if args[1] == "global" and lang.gid:
             assert len(args[0]) <= len(lang.gid), f"too many global dimensions, has {len(args[0])} and {len(lang.gid)} are supported"
-            kk(f"{{ int {var.expr} = {lang.gid[len(args[0])-1-i]};  /* {var.max+1} */")
+            kk((f"{{ let {var.expr}: i32 = i32({lang.gid[len(args[0])-1-i]});" if lang.wgsl_style else f"{{ int {var.expr} = {lang.gid[len(args[0])-1-i]};") + f"  /* {var.max+1} */")
             global_size.append(var.max+1)
           elif args[1] == "local" and lang.lid:
             assert len(args[0]) <= len(lang.lid)
-            kk(f"{{ int {var.expr} = {lang.lid[len(args[0])-1-i]};  /* {var.max+1} */")
+            kk((f"{{ let {var.expr}: i32 = i32({lang.lid[len(args[0])-1-i]});" if lang.wgsl_style else f"{{ int {var.expr} = {lang.lid[len(args[0])-1-i]};") + f"  /* {var.max+1} */")
             local_size.append(var.max+1)
           else:
-            kk(f"for (int {var.expr} = {var.min}; {var.expr} <= {var.max}; ++{var.expr}) {{")
+            if lang.wgsl_style: kk(f"for (var {var.expr}: i32 = {var.min}; {var.expr} <= {var.max}; {var.expr}++) {{")
+            else: kk(f"for (int {var.expr} = {var.min}; {var.expr} <= {var.max}; ++{var.expr}) {{")
       depth += 1
     elif uop == UOps.BARRIER:
       kk(lang.barrier)
@@ -105,17 +107,17 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
     elif uop == UOps.CONST:
       assert newvar is not None
       if args == -math.inf:
-        kk(f"{newvar.render(True)} = -INFINITY;")
+        kk(f"{newvar.render(True, lang.wgsl_style)} = -INFINITY;")
       elif newvar.dtype == dtypes._float4:
-        kk(f"{newvar.render(True)} = {{ {args}f, {args}f, {args}f, {args}f }};")
+        kk(f"{newvar.render(True, lang.wgsl_style)} = {{ {args}f, {args}f, {args}f, {args}f }};")
       else:
-        kk(f"{newvar.render(True)} = {args}f;")
+        kk(f"{newvar.render(True, lang.wgsl_style)} = {args}f;")
     elif uop == UOps.ALU:
       assert newvar is not None
       if newvar in vin:
         kk(f"{newvar.render()} = {code_for_op[args](*[x.render() for x in vin])};")
       else:
-        kk(f"{newvar.render(True)} = {code_for_op[args](*[x.render() for x in vin])};")
+        kk(f"{newvar.render(True, lang.wgsl_style)} = {code_for_op[args](*[x.render() for x in vin])};")
     elif uop == UOps.LOAD and newvar is not None:
       # TODO: merge with CONST?
       if bufs[args.i] is not None and isinstance(bufs[args.i].realized, RawConst):
@@ -141,7 +143,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
           else:
             val = f"{bufnames[args.i]}[{args.idx.render(render_cl)}]"
       # NOTE: if min and max are both 0, it should be a CONST in the Linearizer
-      if args.valid.min == 1: kk(f"{newvar.render(True)} = {val};")
+      if args.valid.min == 1: kk(f"{newvar.render(True, lang.wgsl_style)} = {val};")
       else:
         casts = {dtypes._float4: ("", f"{lang.float4}(0.0f, 0.0f, 0.0f, 0.0f)"), dtypes.half: ("(half)", "(half)(0.0f)"), dtypes.float: ("(float)", "0.0f")}[newvar.dtype]
         kk(f"{newvar.render(True)} = ({args.valid.render(render_cl)}) ? {casts[0]}({val}) : {casts[1]};")
@@ -153,7 +155,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
       else:
         kk(f"{bufnames[args.i]}[{args.idx.render(render_cl)}] = {vin[0].render()};")
     elif uop == UOps.CAST and newvar is not None and newvar.dtype == dtypes._float4:
-      kk(f"{newvar.render(True)} = {lang.float4}({','.join([x.render() for x in vin])});")
+      kk(f"{newvar.render(True, lang.wgsl_style)} = {lang.float4}({','.join([x.render() for x in vin])});")
     elif uop == UOps.STORE and len(vin) != 0 and vin[0].dtype == dtypes._float4 and vin[0].offset is None:
       assert args.valid.min == 1, "store must be valid"
       if isinstance(bufs[args[0]].dtype, ImageDType):
@@ -169,10 +171,11 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
       raise RuntimeError(f"failed to render {uop}")
 
   buftypes = [(i,f"{'read_only' if i > 0 else 'write_only'} image2d_t" if x.dtype.name.startswith('image') else
-               ("const " if i > 0 else "")+lang.buffer_prefix+x.dtype.name+"*"+lang.buffer_suffix) for i,x in enumerate(bufs)
+               ("const " if i > 0 and not lang.wgsl_style else "")+lang.buffer_prefix+(f"array<{dtype2wgsl[x.dtype]}>" if lang.wgsl_style else x.dtype.name + "*")+lang.buffer_suffix) for i,x in enumerate(bufs)
                if not isinstance(x, LocalBuffer) and not isinstance(x.realized, RawConst)]
-  prg = ''.join([f"{lang.kernel_prefix} void KERNEL_NAME_PLACEHOLDER(",] +
-    [', '.join([f'{t} {bufnames[i]}' for i,t in buftypes] + lang.extra_args)] +
+  prg = ''.join(([f"@group(0) @binding({i}) var<storage,read{'' if i > 0 else '_write'}> {bufnames[i]}: {t};\n" for i,t in buftypes] if lang.wgsl_style else []) +
+    [f"{lang.kernel_prefix} {'fn' if lang.wgsl_style else 'void'} KERNEL_NAME_PLACEHOLDER(",] +
+    [', '.join(([] if lang.wgsl_style else [f'{t} {bufnames[i]}' for i,t in buftypes]) + lang.extra_args)] +
     [") {\n"] + list(prekernel) + ['\n'.join(kernel), "\n}"])
 
   if lang.half_prekernel and any(x.dtype == dtypes.float16 for x in bufs): prg = ''.join([f"{lang.half_prekernel}", "\n", prg])
