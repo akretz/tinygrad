@@ -209,6 +209,21 @@ jobs:
       run: DEBUG=2 METAL=1 python -m pytest test/test_ops.py
     # dtype test has issues on test_half_to_int8
 
+  testwgsl:
+    name: WGSL Tests
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.8
+    - name: Install Dependencies
+      run: pip install -e '.[wgpu,testing]' --extra-index-url https://download.pytorch.org/whl/cpu
+    - name: Run ops test
+      run: DEBUG=2 WGSL=1 python -m pytest test/test_ops.py
+
   testdocker:
     name: Docker Test
     runs-on: ubuntu-latest
