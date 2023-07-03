@@ -65,6 +65,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
   pend_close = None
 
   bufnames = [b.name if isinstance(b, LocalBuffer) else f"data{i}" for i,b in enumerate(bufs)]
+  infinity = "(1./0.)" if lang.wgsl_style else "INFINITY"
 
   depth = 0
   def kk(s): kernel.append("  "*depth+s)
@@ -107,24 +108,22 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
     elif uop == UOps.CONST:
       assert newvar is not None
       if args == -math.inf:
-        kk(f"{newvar.render(True, lang.wgsl_style)} = -INFINITY;")
+        kk(f"{newvar.render(True, lang.wgsl_style)} = -{infinity};")
       elif newvar.dtype == dtypes._float4:
         kk(f"{newvar.render(True, lang.wgsl_style)} = {{ {args}f, {args}f, {args}f, {args}f }};")
       else:
         kk(f"{newvar.render(True, lang.wgsl_style)} = {args}f;")
     elif uop == UOps.ALU:
       assert newvar is not None
-      if newvar in vin:
-        kk(f"{newvar.render()} = {code_for_op[args](*[x.render() for x in vin])};")
-      else:
-        kk(f"{newvar.render(True, lang.wgsl_style)} = {code_for_op[args](*[x.render() for x in vin])};")
+      if lang.wgsl_style: kk(f"{newvar.render(newvar not in vin, True)} = {dtype2wgsl[newvar.dtype]}({code_for_op[args](*[f'{dtype2wgsl[newvar.dtype]}({x.render()})' for x in vin])});")
+      else: kk(f"{newvar.render(newvar not in vin)} = {code_for_op[args](*[x.render() for x in vin])};")
     elif uop == UOps.LOAD and newvar is not None:
       # TODO: merge with CONST?
       if bufs[args.i] is not None and isinstance(bufs[args.i].realized, RawConst):
         assert newvar.dtype == dtypes.float, "const can't be float4"
         x = bufs[args.i].realized._buf
         if math.isnan(x): val = "NAN"
-        elif math.isinf(x): val = ("-" if x < 0 else "") + "INFINITY"
+        elif math.isinf(x): val = ("-" if x < 0 else "") + infinity
         else: val = f"{x}" +  ("f" if not dtypes.is_int(bufs[args.i].dtype) else "")
       elif isinstance(bufs[args.i].dtype, ImageDType):
         assert newvar.dtype == dtypes._float4, f"image must be float4 {newvar}"
@@ -145,16 +144,19 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
       # NOTE: if min and max are both 0, it should be a CONST in the Linearizer
       if args.valid.min == 1: kk(f"{newvar.render(True, lang.wgsl_style)} = {val};")
       else:
-        casts = {dtypes._float4: ("", f"{lang.float4}(0.0f, 0.0f, 0.0f, 0.0f)"), dtypes.half: ("(half)", "(half)(0.0f)"), dtypes.float: ("(float)", "0.0f")}[newvar.dtype]
-        if lang.wgsl_style: kk(f"{newvar.render(True, True)} = select(0.0f, {val}, {args.valid.render(render_cl)});")
-        else: kk(f"{newvar.render(True)} = ({args.valid.render(render_cl)}) ? {casts[0]}({val}) : {casts[1]};")
+        if lang.wgsl_style:
+          kk(f"{newvar.render(True, True)} = select({dtype2wgsl[newvar.dtype]}(0),{dtype2wgsl[newvar.dtype]}({val}),bool({args.valid.render(render_cl)}));")
+        else:
+          casts = {dtypes._float4: ("", f"{lang.float4}(0.0f, 0.0f, 0.0f, 0.0f)"), dtypes.half: ("(half)", "(half)(0.0f)"), dtypes.float: ("(float)", "0.0f")}[newvar.dtype]
+          kk(f"{newvar.render(True)} = ({args.valid.render(render_cl)}) ? {casts[0]}({val}) : {casts[1]};")
     elif uop == UOps.STORE and (vin[0].dtype == dtypes.float or (vin[0].dtype == dtypes._float4 and vin[0].offset is not None)):
       assert not isinstance(bufs[args.i].dtype, ImageDType), "image store must be float4"
       assert args.valid.min == 1, "store must be valid"
       if lang.uses_vload and bufs[args.i].dtype == dtypes.float16:
         kk(f"vstore_half({vin[0].render()}, {args.idx.render(render_cl)}, {bufnames[args.i]});")
       else:
-        kk(f"{bufnames[args.i]}[{args.idx.render(render_cl)}] = {vin[0].render()};")
+        if lang.wgsl_style: kk(f"{bufnames[args.i]}[{args.idx.render(render_cl)}] = {dtype2wgsl[bufs[args.i].dtype]}({vin[0].render()});")
+        else: kk(f"{bufnames[args.i]}[{args.idx.render(render_cl)}] = {vin[0].render()};")
     elif uop == UOps.CAST and newvar is not None and newvar.dtype == dtypes._float4:
       kk(f"{newvar.render(True, lang.wgsl_style)} = {lang.float4}({','.join([x.render() for x in vin])});")
     elif uop == UOps.STORE and len(vin) != 0 and vin[0].dtype == dtypes._float4 and vin[0].offset is None:
