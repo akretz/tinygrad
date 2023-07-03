@@ -65,6 +65,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
   pend_close = None
 
   bufnames = [b.name if isinstance(b, LocalBuffer) else f"data{i}" for i,b in enumerate(bufs)]
+  nan = "sqrt(-1.)" if lang.wgsl_style else "NAN"
   infinity = "(1./0.)" if lang.wgsl_style else "INFINITY"
 
   depth = 0
@@ -122,7 +123,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
       if bufs[args.i] is not None and isinstance(bufs[args.i].realized, RawConst):
         assert newvar.dtype == dtypes.float, "const can't be float4"
         x = bufs[args.i].realized._buf
-        if math.isnan(x): val = "NAN"
+        if math.isnan(x): val = nan
         elif math.isinf(x): val = ("-" if x < 0 else "") + infinity
         else: val = f"{x}" +  ("f" if not dtypes.is_int(bufs[args.i].dtype) else "")
       elif isinstance(bufs[args.i].dtype, ImageDType):
