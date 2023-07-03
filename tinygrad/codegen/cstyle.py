@@ -141,7 +141,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
           if newvar.dtype == dtypes._float4:
             val = f"({newvar.dtype.name})(*(({lang.smem_prefix if isinstance(bufs[args.i], LocalBuffer) else lang.buffer_prefix}{bufs[args.i].dtype.name}4*)({bufnames[args.i]}+{args.idx.render(render_cl)})))"
           else:
-            val = f"{bufnames[args.i]}[{args.idx.render(render_cl)}]"
+            val = f"{bufnames[args.i]}[u32({args.idx.render(render_cl)})]" if lang.wgsl_style else f"{bufnames[args.i]}[{args.idx.render(render_cl)}]"
       # NOTE: if min and max are both 0, it should be a CONST in the Linearizer
       if args.valid.min == 1: kk(f"{newvar.render(True, lang.wgsl_style)} = {val};")
       else:
