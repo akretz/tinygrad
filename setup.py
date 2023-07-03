@@ -26,6 +26,7 @@ setup(name='tinygrad',
         'cuda': ["pycuda"],
         'triton': ["triton>=2.0.0.dev20221202"],
         'metal': ["pyobjc-framework-Metal", "pyobjc-framework-Cocoa", "pyobjc-framework-libdispatch"],
+        'wgpu': ["wgpu"],
         'linting': [
             "flake8",
             "pylint",
