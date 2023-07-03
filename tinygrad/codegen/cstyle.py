@@ -63,6 +63,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
   global_size = []
   local_size = []
   pend_close = None
+  local_bufs = []
 
   bufnames = [b.name if isinstance(b, LocalBuffer) else f"data{i}" for i,b in enumerate(bufs)]
   nan = "sqrt(-1.)" if lang.wgsl_style else "NAN"
@@ -170,14 +171,15 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
       else:
         kk(f"*(({lang.smem_prefix if isinstance(bufs[args.i], LocalBuffer) else lang.buffer_prefix}{bufs[args.i].dtype.name}4*)({bufnames[args.i]}+{args.idx.render(render_cl)})) = ({bufs[args.i].dtype.name}4){vin[0].render()};")
     elif uop == UOps.DEFINE_LOCAL:
-      kk(lang.smem_prefix + (f"var {args[0]}: array<f32,{args[1]}>;" if lang.wgsl_style else f"float {args[0]}[{args[1]}];"))
+      if lang.wgsl_style: local_bufs.append(f"var<workgroup> {args[0]}: array<f32,{args[1]}>;\n")
+      else: kk(lang.smem_prefix + f"float {args[0]}[{args[1]}];")
     else:
       raise RuntimeError(f"failed to render {uop}")
 
   buftypes = [(i,f"{'read_only' if i > 0 else 'write_only'} image2d_t" if x.dtype.name.startswith('image') else
                ("const " if i > 0 and not lang.wgsl_style else "")+lang.buffer_prefix+(f"array<{dtype2wgsl[x.dtype]}>" if lang.wgsl_style else x.dtype.name + "*")+lang.buffer_suffix) for i,x in enumerate(bufs)
                if not isinstance(x, LocalBuffer) and not isinstance(x.realized, RawConst)]
-  prg = ''.join(([f"@group(0) @binding({binding}) var<storage,read{'' if i > 0 else '_write'}> {bufnames[i]}: {t};\n" for binding,(i,t) in enumerate(buftypes)] if lang.wgsl_style else []) +
+  prg = ''.join(([f"@group(0) @binding({binding}) var<storage,read{'' if i > 0 else '_write'}> {bufnames[i]}: {t};\n" for binding,(i,t) in enumerate(buftypes)] + local_bufs if lang.wgsl_style else []) +
     [f"{lang.kernel_prefix} {'fn' if lang.wgsl_style else 'void'} KERNEL_NAME_PLACEHOLDER(",] +
     [', '.join(([] if lang.wgsl_style else [f'{t} {bufnames[i]}' for i,t in buftypes]) + lang.extra_args)] +
     [") {\n"] + list(prekernel) + ['\n'.join(kernel), "\n}"])

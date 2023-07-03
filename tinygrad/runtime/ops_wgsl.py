@@ -44,6 +44,7 @@ class WGSLProgram:
 class WGSLCodegen(CStyleCodegen):
   lang = CStyleLanguage(kernel_prefix = "@compute @workgroup_size(WORKGROUP_SIZE)",
                         wgsl_style = True,
+                        barrier = "workgroupBarrier();",
                         gid = [f"gid.{chr(120+i)}" for i in range(3)], lid = [f"lid.{chr(120+i)}" for i in range(3)],
                         extra_args=['@builtin(workgroup_id) gid: vec3<u32>', '@builtin(local_invocation_id) lid: vec3<u32>'])
   supports_float4: bool = False
