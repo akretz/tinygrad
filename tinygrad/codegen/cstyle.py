@@ -173,7 +173,7 @@ def uops_to_cstyle(uops:List[UOp], bufs:List[Union[LocalBuffer,LazyBuffer]], lan
   buftypes = [(i,f"{'read_only' if i > 0 else 'write_only'} image2d_t" if x.dtype.name.startswith('image') else
                ("const " if i > 0 and not lang.wgsl_style else "")+lang.buffer_prefix+(f"array<{dtype2wgsl[x.dtype]}>" if lang.wgsl_style else x.dtype.name + "*")+lang.buffer_suffix) for i,x in enumerate(bufs)
                if not isinstance(x, LocalBuffer) and not isinstance(x.realized, RawConst)]
-  prg = ''.join(([f"@group(0) @binding({i}) var<storage,read{'' if i > 0 else '_write'}> {bufnames[i]}: {t};\n" for i,t in buftypes] if lang.wgsl_style else []) +
+  prg = ''.join(([f"@group(0) @binding({binding}) var<storage,read{'' if i > 0 else '_write'}> {bufnames[i]}: {t};\n" for binding,(i,t) in enumerate(buftypes)] if lang.wgsl_style else []) +
     [f"{lang.kernel_prefix} {'fn' if lang.wgsl_style else 'void'} KERNEL_NAME_PLACEHOLDER(",] +
     [', '.join(([] if lang.wgsl_style else [f'{t} {bufnames[i]}' for i,t in buftypes]) + lang.extra_args)] +
     [") {\n"] + list(prekernel) + ['\n'.join(kernel), "\n}"])
