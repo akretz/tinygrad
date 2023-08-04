@@ -179,7 +179,7 @@ jobs:
     #  run: DEBUG=4 METAL=1 python -m pytest test/test_dtype.py
     # dtype test has issues on test_half_to_int8
     - name: Run metal ops test
-      run: DEBUG=2 METAL=1 python -m pytest test/test_ops.py
+      run: NOUNROLL=1 DEBUG=2 METAL=1 python -m pytest test/test_ops.py
     - name: Run JIT test
       run: DEBUG=2 METAL=1 python -m pytest test/test_jit.py
     # TODO: why not testing the whole test/?
