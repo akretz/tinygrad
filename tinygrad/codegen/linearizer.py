@@ -225,7 +225,7 @@ class Linearizer:
     should_upcast = self.opts.supports_float4 and (self.bufs[i].dtype in [dtypes.float32, dtypes.float16] or isinstance(self.bufs[i].dtype, ImageDType))
     return [x for x in self.sts[i].unit_stride_axes() if should_upcast and x >= self.shape_len-self.upcasted and self.sts[i].shape[x] > 1]
 
-  def global_load(self, i:int, idxs:Sequence[VariableOrNum], const=None) -> List[Token]:
+  def global_load(self, i:int, idxs:Sequence[VariableOrNum], const=None, barrier=False) -> List[Token]:
     if isinstance(self.bufs[i].realized, RawConst): const = self.bufs[i].realized._buf
 
     expanded_nodes = [expand_node(idx) for idx in idxs]
@@ -253,6 +253,8 @@ class Linearizer:
         if isinstance(self.bufs[i].dtype, ImageDType): idx = to_image_idx(self.bufs[i].dtype.shape, idx, valid)
         cache[key] = self.uop(UOps.LOAD, Token(f"val{mnum(i)}_{len(cache)}", localtype), [], MemOp(self.get_buffer_name(i), idx, self.bufs[i].__class__ is LocalBuffer, self.bufs[i].dtype, valid, 0.0 if not dtypes.is_int(self.bufs[i].dtype) else 0)) if const is None else \
                      self.uop(UOps.LOAD, Token(f"acc{mnum(i)}_{len(cache)}", localtype), [], ConstOp(const, valid))
+        if barrier and len(cache) == 1:
+          self.uop(UOps.BARRIER, None, [], 'memory')
       ret.append(Token(cache[key].name, cache[key].dtype, expanded_nodes[dim].index(_idx[dim])) if localtype != dtypes.float else cache[key])
     return ret
 
@@ -386,7 +388,7 @@ class Linearizer:
             if DEBUG >= 4: print(f"failed upcasting stride {v} extra locals {extra_locals}")
             this_upcast_idxs.append(v)
         idxs = global_idxs+local_idxs+reduce_idxs+this_upcast_idxs
-        ll = self.global_load(i, idxs)
+        ll = self.global_load(i, idxs, None, True)
         locals_to_store.append((self.bufs.index(self.local_alias[i]), idxs, ll))
 
       # copy in any global buffers

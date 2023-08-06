@@ -131,7 +131,7 @@ def uops_to_cstyle(lang:CStyleLanguage, function_name:str, uops:List[UOp])  -> T
           kk("{" if isinstance(var, NumNode) else lang.render_for(var.expr, var.min, var.max))
       depth += 1
     elif uop == UOps.BARRIER:
-      kk(lang.barrier)
+      kk("simdgroup_barrier(mem_flags::mem_device);" if args == 'memory' else lang.barrier)
     elif uop == UOps.ENDLOOP:
       if args[1] == "local" and len(lang.lid):
         # TODO: this is a bit of a hack. the local loop isn't real on the GPU
