@@ -66,6 +66,7 @@ class Kernel:
     self.local_dims: int = 0
     self.local_alias: Dict[int, LocalBuffer] = {}
     self.use_tensor_cores: bool = False
+    self.conv2d: bool = False
     self.exclude_local_upcast: int = 0
     self.reverse_upcast_dir: bool = False
 
